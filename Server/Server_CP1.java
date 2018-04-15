@@ -49,17 +49,15 @@ public class Server_CP1 {
 
             //=====================================================Authentication
 
+            //server send its own certificate to client
             //Read file and convert to byte array
             String serverCertN = "server.crt";
             File serverCert = new File(serverCertN);
-            InputStream inputStream= new FileInputStream(serverCertN);
+            InputStream inputStream= new FileInputStream(serverCert);
             DataInputStream dataInputStream = new DataInputStream(inputStream);
-            numBytes = dataInputStream.readInt();
+            numBytes = (int) serverCert.length();
             byte[] serverCertByteArray = new byte[numBytes];
             dataInputStream.readFully(serverCertByteArray, 0, numBytes);
-
-            //convert server cert byte array to Base64
-            String serverCertBase64 = DatatypeConverter.printBase64Binary(serverCertByteArray);
 
             toClient.write(serverCertByteArray, 0, numBytes);
             toClient.flush();
@@ -68,11 +66,9 @@ public class Server_CP1 {
             //============================================================Nonce
 
             //Receive nonce by client
-            numBytes = fromClient.readInt();
-            byte[] nonceByteArray = new byte[numBytes];
-            fromClient.readFully(nonceByteArray, 0, numBytes);
-
-            String nonce = DatatypeConverter.printBase64Binary(nonceByteArray);
+            InputStreamReader inputStreamReader = new InputStreamReader(fromClient);
+            BufferedReader bufferedReader = new BufferedReader(inputStreamReader);
+            String nonce = bufferedReader.readLine();
             System.out.println("Nonce: "+nonce);
 
             //Generate private key
@@ -84,10 +80,10 @@ public class Server_CP1 {
             PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
 
             //Encrypt nonce
-            Cipher rsaCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-            rsaCipher.init(Cipher.ENCRYPT_MODE, privateKey);
-            byte[] encryptedNonceByteArray = rsaCipher.doFinal(nonceByteArray); //or
-            //byte[] encryptedNonce = rsaCipher.doFinal(nonce.getBytes());
+            Cipher rsaCipher_en = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            rsaCipher_en.init(Cipher.ENCRYPT_MODE, privateKey);
+            //byte[] encryptedNonceByteArray = rsaCipher_en.doFinal(nonce.getBytes()); //or
+            byte[] encryptedNonceByteArray = rsaCipher_en.doFinal(nonce.getBytes());
             numBytes = encryptedNonceByteArray.length;
 
             String encryptedNonce = DatatypeConverter.printBase64Binary(encryptedNonceByteArray);
@@ -98,6 +94,10 @@ public class Server_CP1 {
             System.out.println("Encrypted Nonce sent");
 
             //===========================================================Confidentiality
+
+            Cipher rsaCipher_de = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+            rsaCipher_de.init(Cipher.DECRYPT_MODE, privateKey);
+
             while (!connectionSocket.isClosed()) {
 
                 int packetType = fromClient.readInt();
@@ -110,8 +110,10 @@ public class Server_CP1 {
                     System.out.println("Receiving file...");
 
                     numBytes = fromClient.readInt();
-                    byte [] filename = new byte[numBytes];
-                    fromClient.readFully(filename, 0, numBytes);
+                    byte[] encryptedFilename = new byte[numBytes];
+                    fromClient.readFully(encryptedFilename, 0, numBytes);
+
+                    byte[] filename = rsaCipher_de.doFinal(encryptedFilename);
 
                     fileOutputStream = new FileOutputStream("recv_"+new String(filename, 0, numBytes));
                     bufferedFileOutputStream = new BufferedOutputStream(fileOutputStream);
@@ -120,8 +122,10 @@ public class Server_CP1 {
                 } else if (packetType == 1) {
 
                     numBytes = fromClient.readInt();
-                    byte [] block = new byte[numBytes];
-                    fromClient.readFully(block, 0, numBytes);
+                    byte [] encryptedBlock = new byte[numBytes];
+                    fromClient.readFully(encryptedBlock, 0, numBytes);
+
+                    byte[] block = rsaCipher_de.doFinal(encryptedBlock);
 
                     if (numBytes > 0)
                         bufferedFileOutputStream.write(block, 0, numBytes);
