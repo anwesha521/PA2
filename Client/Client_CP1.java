@@ -44,6 +44,7 @@ public class Client_CP1 {
 	public static void main(String args[]) {
 
     	String filename = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\test.txt";
+    	String name="test";
     	if (args.length > 0) filename = args[0];
     	
         String serverAddress = "localhost";
@@ -169,6 +170,8 @@ public class Client_CP1 {
             //sending the file
             while(true)
                 if(!file_sent){
+                	
+
                     
                     File serverFile = new File(filename); //creating my file test.txt
                   
@@ -193,6 +196,17 @@ public class Client_CP1 {
                     Cipher eCipherRSA = Cipher.getInstance("RSA/ECB/PKCS1Padding");
                     eCipherRSA.init(Cipher.ENCRYPT_MODE, server_publicKey);
                     
+
+                	toServer.writeInt(0);
+        			byte[] n=eCipherRSA.doFinal(name.getBytes());
+        			System.out.println("name="+new String(n));
+        			toServer.writeInt(n.length);
+        			BufferedOutputStream bufferedOutputStream= new BufferedOutputStream(toServer);
+                    bufferedOutputStream.write(n, 0, n.length);
+                    bufferedOutputStream.flush();
+        			toServer.flush();
+        			
+                    
                     byte [] fromFileBuffer = new byte[117];
 
                    
@@ -210,6 +224,7 @@ public class Client_CP1 {
                          
                         
                     }
+                    
                     byteBlocks[i] = Arrays.copyOfRange(inputByteFile, i * 117, inputByteFile.length);
                     
                     for (i=0; i<byteBlocks.length; i++) {
@@ -222,11 +237,12 @@ public class Client_CP1 {
                         joining_encrypted_blocks.write(block, 0, block.length);
                     }
                     byte[] encryptedBytes= joining_encrypted_blocks.toByteArray();
-
-                    out.println(encryptedBytes.length);
-                    out.flush();
+                   
+                    
+                    toServer.writeInt(encryptedBytes.length);
+                    toServer.flush();
     
-                    BufferedOutputStream bufferedOutputStream= new BufferedOutputStream(toServer);
+                    bufferedOutputStream= new BufferedOutputStream(toServer);
                     bufferedOutputStream.write(encryptedBytes, 0, encryptedBytes.length);
                    
                     bufferedOutputStream.flush();
@@ -237,7 +253,8 @@ public class Client_CP1 {
                 else{
                     
                     String serverMsg= new String(fromServer.readLine());
-                    if(serverMsg.equals("uploaded file")){
+                    System.out.println("server msg="+serverMsg.trim());
+                    if(serverMsg.trim().equals("uploaded file")){
                        
                         System.out.println("File uploaded successfully");
                         
