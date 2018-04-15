@@ -30,6 +30,7 @@ public class Client_CP2 {
 	public static void main(String args[]) {
 
     	String filename = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\test.txt";
+    	String name="test.txt";
     	if (args.length > 0) filename = args[0];
     	
         String serverAddress = "localhost";
@@ -172,6 +173,16 @@ public class Client_CP2 {
                     
                     Cipher cipher_encrypt = Cipher.getInstance("AES");
                     cipher_encrypt.init(Cipher.ENCRYPT_MODE, key); //init as encrypt mode
+                    
+                    toServer.writeInt(0);
+        			byte[] n=cipher_encrypt.doFinal(name.getBytes());
+        			System.out.println("name="+new String(n));
+        			toServer.writeInt(n.length);
+        			bufferedOutputStream= new BufferedOutputStream(toServer);
+                    bufferedOutputStream.write(n, 0, n.length);
+                    bufferedOutputStream.flush();
+        			toServer.flush();
+        			
 
                     byte[] encryptedBytes = cipher_encrypt.doFinal(inputByteFile);
 
