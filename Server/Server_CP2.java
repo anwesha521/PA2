@@ -1,3 +1,5 @@
+package Server;
+
 import java.net.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -7,6 +9,7 @@ import java.security.PrivateKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.io.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import javax.crypto.*;
@@ -15,137 +18,182 @@ import javax.xml.bind.DatatypeConverter;
 
 public class Server_CP2 {
     public static void main(String[] args) throws Exception {
-        //initiate the server socket
-        ServerSocket serverSocket = new ServerSocket(43211);
 
-        //handshake with client
-        Socket clientSocket = serverSocket.accept();
-        System.out.println("client connected");  
+        String serverCertN = "server.crt";
+        String privateKeyN = "privateServer.der";
 
-        //initiate IO
-        InputStream inputStream_from_client = clientSocket.getInputStream();   
-        InputStreamReader isr = new InputStreamReader(inputStream_from_client);
-        BufferedReader in = new BufferedReader(isr);
-        OutputStream outputStream_to_client = clientSocket.getOutputStream();         
-        PrintWriter out = new PrintWriter(outputStream_to_client, true);
+        int port = 4321;
+        if (args.length > 0) port = Integer.parseInt(args[0]);
 
-
-
-
-//---------------------------1. Authentication (CA)--------------------------------//
-
-        //server send its own certificate to client
-        String fileName = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\src\\server.crt";
-        File file_to_client = new File(fileName);
-        String data = "";
-        String line;
-        BufferedReader bufferedReader = new BufferedReader(new FileReader(fileName));
-        while ((line = bufferedReader.readLine()) != null) {
-            data = data + "\n" + line;
-        }
+        ServerSocket clientSocket = null;
+        Socket connectionSocket = null;
+        DataOutputStream toClient = null;
+        DataInputStream fromClient = null;
 
         FileInputStream fileInputStream = null;
-        byte[] input_file_as_byte_array = new byte[(int) file_to_client.length()];
-        int file_byte_length= input_file_as_byte_array.length;
+        BufferedInputStream bufferedInputStream = null;
+
+        Cipher enCipher= Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        Cipher deCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        Cipher aesCipher = Cipher.getInstance("AES");
+
+        int numBytes;
+        byte[] byteFile;
+        String name = null;
+
+        long startTime = 0;
+        long endTime;
+        long duration;
+
+
         try {
-            //convert file into byte array
-            fileInputStream = new FileInputStream(file_to_client);
-            fileInputStream.read(input_file_as_byte_array);
-            fileInputStream.close();
-        } catch (Exception e) {
-            e.printStackTrace();
+
+//================================Establishing connections==============================================
+
+            System.out.println("Establishing connection to client... ....");
+            clientSocket = new ServerSocket(port);
+            connectionSocket = clientSocket.accept();
+            System.out.println("Client connected");
+
+            InputStream inputStream = connectionSocket.getInputStream();
+            fromClient = new DataInputStream(inputStream);
+            toClient = new DataOutputStream(connectionSocket.getOutputStream());
+            InputStreamReader inputStreamReader = new InputStreamReader(inputStream);
+            BufferedReader in = new BufferedReader(inputStreamReader);
+
+//================================CA Authentication================================
+
+            //server send its own certificate to client
+            File serverCert = new File(serverCertN);
+            numBytes = (int) serverCert.length();
+            byte[] serverCert_bytes = new byte[numBytes];
+
+            try {
+                //convert file into byte array
+                fileInputStream = new FileInputStream(serverCertN);
+                fileInputStream.read(serverCert_bytes, 0, numBytes);
+                fileInputStream.close();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            String serverCert_base64 = DatatypeConverter.printBase64Binary(serverCert_bytes);
+
+            toClient.writeChars(serverCert_base64+"\n");
+            toClient.flush();
+            System.out.println("Server certificate sent");
+
+//=============================Nonce===================================================
+
+            String nonce = in.readLine();
+            System.out.println("Nonce Received: "+nonce);
+
+            byte[] privateKey_bytes = Files.readAllBytes(Paths.get(privateKeyN));
+
+            PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(privateKey_bytes);
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
+
+            enCipher.init(Cipher.ENCRYPT_MODE, privateKey);
+            byte[] en_nonce_bytes= enCipher.doFinal((nonce.getBytes()));
+
+            String en_nonce = DatatypeConverter.printBase64Binary(en_nonce_bytes);
+            System.out.println("Encrypted nonce: "+en_nonce);
+            System.out.println("Encrypted nonce size: "+en_nonce_bytes.length);
+
+            toClient.writeChars(en_nonce_bytes+"\n");
+            toClient.flush();
+            System.out.println("Encrypted nonce sent");
+
+//=============================RSA===============================================
+            while (!connectionSocket.isClosed()) {
+
+                bufferedInputStream = new BufferedInputStream(inputStream);
+
+                int packetType = fromClient.readInt();
+
+                // If the packet is for transferring the filename
+                if (packetType == 0) {
+                    numBytes = fromClient.readInt();
+                    byte[] enSecretKey_bytes = new byte[numBytes];
+                    bufferedInputStream.read(enSecretKey_bytes, 0, numBytes);
+                    System.out.println("Secret Key Received and Read");
+
+                    deCipher.init(Cipher.DECRYPT_MODE, privateKey);
+                    // decrypt the encrypted AES session key in byte[] format using private key
+                    byte[] secretKey_bytes = deCipher.doFinal(enSecretKey_bytes);
+                    SecretKey secretKey = new SecretKeySpec(secretKey_bytes, 0, secretKey_bytes.length, "AES");
+                    //create cipher object, initialize the ciphers with the given key, choose decryption mode as AES
+                    aesCipher.init(Cipher.DECRYPT_MODE, secretKey); //init as decrypt mode
+
+                } else if (packetType==1) {
+                    System.out.println("Receiving file...");
+                    numBytes = fromClient.readInt();
+                    byte[] filename = new byte[numBytes];
+
+                    bufferedInputStream.read(filename, 0, numBytes);
+
+                    byte[] n = aesCipher.doFinal(filename);
+
+                    name=new String(n);
+                    System.out.println("name="+name);
+
+                } else if (packetType==2) {
+
+                    numBytes = fromClient.readInt();
+
+                    byteFile = new byte[numBytes];
+
+                    bufferedInputStream.read(byteFile, 0, numBytes);
+                    System.out.println("File Received and Read");
+
+                    startTime = System.nanoTime();
+
+                    toClient.writeUTF("Uploaded File\n");
+                    toClient.flush();
+
+
+                    int num= (int) Math.ceil((byteFile.length)/128.0); //decrypting in blocks of 128 as per RSA
+
+                    byte[][] fileBytesArray= new byte[num][];
+                    byte[][] decryptedBytesArray= new byte[num][];
+
+                    int len = fileBytesArray.length;
+
+                    for (int i=0; i<len-1; i++) {
+                        fileBytesArray[i] = Arrays.copyOfRange(byteFile, i * 128, (i + 1) * 128);
+                    }
+                    fileBytesArray[len] = Arrays.copyOfRange(byteFile, len * 128, byteFile.length);
+
+                    ByteArrayOutputStream joinedBytes= new ByteArrayOutputStream();
+
+                    //decrypted file per block
+                    for (int i=0; i<fileBytesArray.length; i++) {
+                        decryptedBytesArray[i]= aesCipher.doFinal(fileBytesArray[i]);
+                        joinedBytes.write(decryptedBytesArray[i], 0,  decryptedBytesArray[i].length);
+                    }
+
+                    byte[] decryptedBytes=joinedBytes.toByteArray();
+
+                    FileOutputStream file= new FileOutputStream(name+"_CP2"); //creating output file
+                    file.write(decryptedBytes);
+                    file.close();
+
+                } else if (packetType==3) {
+                    System.out.println("Closing connection...");
+                    fromClient.close();
+                    toClient.close();
+                }
+            }
+
+            // end time for file transfer
+            endTime = System.nanoTime();
+            duration = (endTime - startTime);
+            // the time may include time to enter the name of the file to be transferred
+            System.out.println("Time taken for Server_CP2 file transfer is: "+duration/1000000+" ms");
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
         }
-
-        //convert byte array file (server certificate) to base64 format
-        String input_file_as_byte_array_string = DatatypeConverter.printBase64Binary(input_file_as_byte_array);
-
-        //send file to client
-        out.write(input_file_as_byte_array_string+"\n");
-        out.flush();
-        System.out.println("server certificate sent");    
-
-
-
-
-//---------------------------2. Authentication (nonce)--------------------------------//
-
-        // receive plain nonce broadcasted by client
-        String nonce = in.readLine();
-        System.out.println("plain nonce received: "+nonce);
-
-        // generate private key
-        String privateKeyFileName = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\src\\privateServer.der";
-        Path path = Paths.get(privateKeyFileName);
-        byte[] privKeyByteArray = Files.readAllBytes(path);
-        PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(privKeyByteArray);
-        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-        PrivateKey server_privateKey = keyFactory.generatePrivate(keySpec);
-
-        // encrypt nonce with private key
-        Cipher rsaCipher_encrypt_nonce= Cipher.getInstance("RSA/ECB/PKCS1Padding");
-        rsaCipher_encrypt_nonce.init(Cipher.ENCRYPT_MODE, server_privateKey);
-        byte[] encrypted_nonce= rsaCipher_encrypt_nonce.doFinal((nonce.getBytes()));
-        
-        // convert encrypted nonce into String (base64binary)
-        String encrypted_nonce_string = DatatypeConverter.printBase64Binary(encrypted_nonce);
-        System.out.println("encrypt nounce: "+encrypted_nonce_string);
-        System.out.println("encrypt nounce size: "+encrypted_nonce.length);
-
-        // send encrypted nonce to client
-        out.write(encrypted_nonce_string+"\n");
-        out.flush();
-        System.out.println("encrypt nonce sent");
-        
-
-
-
-//---------------------------3. Confidentiality (RSA+AES)--------------------------------//
-
-        Integer numberBytes = new Integer(in.readLine());
-        //initialize fileReceived_bytes
-        byte[] fileReceived_byte = new byte[numberBytes];
-
-        //convert buffinputstream into byte array
-        BufferedInputStream bufferedInputStream= new BufferedInputStream(inputStream_from_client);
-        
-        //then simply read over from stream into byte array
-        bufferedInputStream.read(fileReceived_byte, 0, numberBytes);
-        System.out.println("file received and read");
-
-        // start time for file transfer
-        long startTime = System.nanoTime();
-       
-        
-        String secrete_key_byte_encrypted_string = in.readLine();
-      
-        out.write("uploaded file\n");
-        out.flush();
-
-        // convert String received from client to byte[]
-        byte[] secrete_key_byte_encrypted = DatatypeConverter.parseBase64Binary(secrete_key_byte_encrypted_string);
-
-        // decrypt the encrypted AES session key in byte[] format useing private key
-        Cipher rsaCipher_decrypt = Cipher.getInstance("RSA/ECB/PKCS1Padding");
-        rsaCipher_decrypt.init(Cipher.DECRYPT_MODE, server_privateKey);
-        byte[] decryptedBytes = rsaCipher_decrypt.doFinal(secrete_key_byte_encrypted);
-        SecretKey key = new SecretKeySpec(decryptedBytes, 0, decryptedBytes.length, "AES");
-
-        //create cipher object, initialize the ciphers with the given key, choose decryption mode as AES
-        Cipher cipher_decrypt = Cipher.getInstance("AES");
-        cipher_decrypt.init(Cipher.DECRYPT_MODE, key); //init as decrypt mode
-
-        //do decryption, by calling method Cipher.doFinal().
-        byte[] decryptedFile = cipher_decrypt.doFinal(fileReceived_byte);
-
-        //write decrypted bytes into a image file using FileOuputStream
-        FileOutputStream create_file= new FileOutputStream("serverFileCP2");
-        create_file.write(decryptedFile);
-        create_file.close();
-
-        // end time for file transfer
-        long endTime = System.nanoTime();
-        long duration = (endTime - startTime); 
-        // the time may include time to enter the name of the file to be transferred
-        System.out.println("Time taken for file transfer [CP2] is: "+duration/1000000+" ms");          
     }
 }
