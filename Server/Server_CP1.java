@@ -1,5 +1,3 @@
-
-
 import java.net.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,8 +14,8 @@ import javax.xml.bind.DatatypeConverter;
 public class Server_CP1 {
     public static void main(String[] args) throws Exception {
 
-        String fileName = "server.crt";
-        String privateKeyFileName = "privateServer.der";
+        String fileName = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\server.crt";
+        String privateKeyFileName = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\privateServer.der";
 
         if (args.length > 0) fileName = args[0];
 
