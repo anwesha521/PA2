@@ -49,23 +49,15 @@ public class Client_CP1 {
     	
         String serverAddress = "localhost";
         int port = 4321;
-        
-        int numBytes = 0;
-    
-    
+     
         Socket clientSocket = null;
-        
         DataOutputStream toServer = null;
         DataInputStream fromServer = null;
         
         FileInputStream fileInputStream = null;
-        BufferedInputStream bufferedFileInputStream = null;
-      
-        
+       
         boolean file_sent = false;
-        boolean complete = false;
-        
-        long timeStarted = System.nanoTime();
+       
         
         try {
 
@@ -175,7 +167,7 @@ public class Client_CP1 {
                     File serverFile = new File(filename); //creating my file test.txt
                   
                     fileInputStream = new FileInputStream(filename);
-        			bufferedFileInputStream = new BufferedInputStream(fileInputStream);
+        		
         			fileInputStream.close();
         			
         			
