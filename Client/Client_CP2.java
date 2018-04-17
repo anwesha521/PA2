@@ -48,7 +48,8 @@ public class Client_CP2 {
         
         
         FileInputStream fileInputStream = null;
-        String fileName = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\test.txt";
+        String fileName = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\testLarge.txt"
+        		+ "";
        
         boolean file_sent = false;
      
