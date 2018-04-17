@@ -37,40 +37,40 @@ import javax.xml.bind.DatatypeConverter;
 
 public class Client_CP2 {
 
-	@SuppressWarnings("deprecation")
     public static void main(String args[]) {
-		
-		String fileName = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\test.txt";
-        String hostName = "localhost";
-        String name="test";
-        int portNumber = 43211;
-    
 
-        boolean file_sent = false;
+        String hostName = "10.12.136.138";
+        int portNumber = 4321;
+    
+        String my_nonce = "noncey";
+        String name="test";
+
         
-        Socket clientSocket = null;
-        DataOutputStream toServer = null;
-        DataInputStream fromServer = null;
-        BufferedOutputStream bufferedOutputStream =null;
+        
         FileInputStream fileInputStream = null;
+        String fileName = "C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\test.txt";
        
+        boolean file_sent = false;
      
         try {
-        	System.out.println("Establishing connection to server...");
+        	 Socket clientSocket = new Socket(hostName, portNumber);
 
+             //initiate IO
+             InputStream inputStream_from_server = clientSocket.getInputStream();
+             InputStreamReader isr = new InputStreamReader(inputStream_from_server);
+             BufferedReader in = new BufferedReader(isr);
+             OutputStream toServer = clientSocket.getOutputStream();
+             PrintWriter out = new PrintWriter(clientSocket.getOutputStream(),true);
             clientSocket = new Socket(hostName, portNumber);
 
-            //initiate IO
-            fromServer = new DataInputStream(clientSocket.getInputStream());
-            toServer = new DataOutputStream(clientSocket.getOutputStream());
             
-         
-            PrintWriter out = new PrintWriter(clientSocket.getOutputStream(),true);
+            
 
 
-//============================Certificate verification=======================================
+          //============================Certificate verification=======================================
 
-            String serverCert_string = fromServer.readLine();
+            //receive certificate from server
+            String serverCert_string = in.readLine();
             byte[] serverCert_byte = DatatypeConverter.parseBase64Binary(serverCert_string);
 
             //new file to store the certificate received from client
@@ -79,7 +79,7 @@ public class Client_CP2 {
             writer.write(new String(serverCert_byte));
             writer.close();
 
-            InputStream caCertInputStream= new FileInputStream("C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\src\\CA.crt"); 
+            InputStream caCertInputStream= new FileInputStream("C:\\Users\\ASUS\\eclipse-workspace\\Assignment2\\CA.crt"); 
             CertificateFactory cf_ca= CertificateFactory.getInstance("X.509");
             X509Certificate CAcert= (X509Certificate) cf_ca.generateCertificate(caCertInputStream);
 
@@ -103,13 +103,10 @@ public class Client_CP2 {
                 System.out.println("server certificate valid");
             }
             //CertificateExpiredException - if the certificate has expired.
-            catch (CertificateExpiredException e){
+            catch (Exception e){
                 e.printStackTrace();
             }
-            //CertificateNotYetValidException - if the certificate is not yet valid.
-            catch (CertificateNotYetValidException e){
-                e.printStackTrace();
-            }
+            
 
             //verify server cert using CA's public key
             PublicKey CA_Key = CAcert.getPublicKey();
@@ -124,13 +121,14 @@ public class Client_CP2 {
             PublicKey server_publicKey = MyCert.getPublicKey();
 
 
-//===============================Nonce====================================
+
+//---------------------------2. Authentication (nonce)--------------------------------// 
 
             out.println("noncey"); 
             out.flush();
             System.out.println("plain nonce sent");
 
-            String encrypted_nonce_string = fromServer.readLine();
+            String encrypted_nonce_string = in.readLine();
             System.out.println("encrypted nonce received: "+encrypted_nonce_string);
 
             byte[] encrypted_nonce = DatatypeConverter.parseBase64Binary(encrypted_nonce_string);
@@ -145,109 +143,98 @@ public class Client_CP2 {
             
             if(new String(decrypted_nonce).equals("noncey"))
             	System.out.println("nonce matched");
+         
 
 
 
-//=============================RSA+AES========================================
+//---------------------------3. Confidentiality (RSA+AES)--------------------------------//
 
-            
-            while(true){
+           while(true)
+           {
                 if(!file_sent){
-                    
                    
-                    File serverFile = new File(fileName);
+                    File file_to_server = new File(fileName);
                     
-                    fileInputStream = new FileInputStream(fileName);
-                    fileInputStream.close();
-                    
-                    //generating secret key using AES
-                    SecretKey key = KeyGenerator.getInstance("AES").generateKey();
 
-                    Cipher eCipherAES = Cipher.getInstance("AES");
-                    eCipherAES.init(Cipher.ENCRYPT_MODE, key);
-                    
                     Cipher eCipherRSA = Cipher.getInstance("RSA/ECB/PKCS1Padding");
                     eCipherRSA.init(Cipher.ENCRYPT_MODE, server_publicKey);
                     
-                    byte[] byteFile = new byte[(int) serverFile.length()];
+        			out.println(name);
+        			
+                    out.flush();
+                   
+                    fileInputStream = null;
+                    byte[] input_file_as_byte_array = new byte[(int) file_to_server.length()];
                     
                     try {
                         //convert file into byte array
-                        fileInputStream = new FileInputStream(serverFile);
-                        fileInputStream.read(byteFile);
+                        fileInputStream = new FileInputStream(file_to_server);
+                        fileInputStream.read(input_file_as_byte_array);
                         fileInputStream.close();
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
-                    
-                    
-                    //convert secrete AES session key to byte[]
-                    byte[] byteKey = key.getEncoded();
 
-                    //encrypt message
-                    byte[] byteKeyEncrypted = eCipherRSA.doFinal(byteKey);
+                
+                    SecretKey key = KeyGenerator.getInstance("AES").generateKey();
 
-                    //convert encrypted AES session key to base64 format
-                    String byteKeyEncryptedString = DatatypeConverter.printBase64Binary(byteKeyEncrypted);
+                    Cipher cipher_encrypt = Cipher.getInstance("AES");
+                    cipher_encrypt.init(Cipher.ENCRYPT_MODE, key); //init as encrypt mode
 
-                    toServer.writeInt(0);
-                    toServer.writeChars(byteKeyEncryptedString);
-                    toServer.flush();
+                  
+                    byte[] encryptedBytes = cipher_encrypt.doFinal(input_file_as_byte_array);
 
-                    
-                    toServer.writeInt(1); //sending packet type =0 for file name
-        			byte[] n=eCipherAES.doFinal(name.getBytes());
-        			
-        			toServer.writeInt(n.length);
-        			bufferedOutputStream= new BufferedOutputStream(toServer);
-                    bufferedOutputStream.write(n, 0, n.length); //sending name of file to be saved
-                    bufferedOutputStream.flush();
-        			toServer.flush();
+                    out.println(encryptedBytes.length);
+                    out.flush();
 
-                    //do encryption, by calling method Cipher.doFinal().
-                    byte[] encryptedBytes = eCipherAES.doFinal(byteFile);
-                    toServer.writeInt(2);
-                    toServer.writeInt(encryptedBytes.length);
-                    toServer.flush();
-
-             
-                    bufferedOutputStream= new BufferedOutputStream(toServer);
+                   
+                    BufferedOutputStream bufferedOutputStream= new BufferedOutputStream(toServer);
                     bufferedOutputStream.write(encryptedBytes, 0, encryptedBytes.length);
                     System.out.println("stream size is: "+encryptedBytes.length);
                     bufferedOutputStream.flush();
 
                     System.out.println("AES encrypted file sent");  
-   
+                                
                    
+                    Cipher rsaCipher_encrypt = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+                    rsaCipher_encrypt.init(Cipher.ENCRYPT_MODE, server_publicKey);
 
-                   
+                    //convert secrete AES session key to byte[]
+                    byte[] secrete_key_byte = key.getEncoded();
+
+                    //encrypt message
+                    byte[] secrete_key_byte_encrypted = rsaCipher_encrypt.doFinal(secrete_key_byte);
+
+                    //convert encrypted AES session key to base64 format
+                    String secrete_key_byte_encrypted_string = DatatypeConverter.printBase64Binary(secrete_key_byte_encrypted);
+
+                    out.println(secrete_key_byte_encrypted_string);
+                    out.flush();
                     file_sent = true;
-                    
-                } 
-
-                else{
-                	
-                	 String serverMsg= new String(fromServer.readLine());
-                     
-                     if(serverMsg.trim().equals("uploaded file")){
-                     	 toServer.writeInt(3);
-                        
-                         System.out.println("File uploaded successfully");
-                         
-                         break;
-                     }
-                     else {
-                         System.out.println("File was not uploaded successfully");
-                         System.exit(1);
-                     }
-
                 }
-                
-                fromServer.close();
-                toServer.close();
-                clientSocket.close();
-            } 
-        } 
+                else{
+                  
+                    String server_bytes_to_string= new String(in.readLine());
+                    if(server_bytes_to_string.equals("uploaded file")){
+                     
+                        
+                        System.out.println("File uploaded successfully");
+                        inputStream_from_server.close();
+                        toServer.close();
+                        clientSocket.close();
+                        break;
+                    }
+                    else {
+                        System.out.println("File was not uploaded successfully");
+                        System.exit(1);
+                    }
+           }
+           }
+           
+
+        } catch (FileNotFoundException e) {
+            System.out.println("File not found");
+        }
         catch (Exception e) {
             e.printStackTrace();
         }
